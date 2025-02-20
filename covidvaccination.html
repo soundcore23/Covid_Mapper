@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <title>Washington COVID Vaccination Map</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 25px;
+            background: white;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            display: none;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+        .legend div {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend span {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 5px 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            border-radius: 3px;
+            display: none;
+            pointer-events: none;
+        }
+        #prop-symbol-legend {
+            position: absolute;
+            bottom: 210px;
+            right: 25px;
+            background: white;
+            padding: 15px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            max-width: 200px;
+        }
+        #title {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 15px;
+            background-color: #fff;
+            position: relative;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="info"></div>
+    <div class="legend" id="legend"></div>
+    <div id="prop-symbol-legend" class="legend"></div>
+    <div id="title">
+        Choropleth map of Fully Vaccinated per 10K & COVID Deaths per 10K in Washington State
+    </div>
+
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYWRpdHlhODkyMyIsImEiOiJjbTFqbDkzMmwwNm9hMmtvbWJxNWNhYWduIn0.UJgHX1BfpgFF6i62mxhfeg';
+
+        async function initMap() {
+            const map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/light-v10',
+                center: [-119.7450, 47.5000],
+                zoom: 6.4
+            });
+
+            const response = await fetch('assets/wa_coviddata.geojson');
+            const data = await response.json();
+
+            map.on('load', () => {
+                map.addSource('wa-covid', {
+                    type: 'geojson',
+                    data: data
+                });
+
+                map.addLayer({
+                    'id': 'covid-layer',
+                    'type': 'fill',
+                    'source': 'wa-covid',
+                    'paint': {
+                        'fill-color': [
+                            'step', ['get', 'fullyVaxPer10k'],
+                            '#f2e6ff',
+                            2500,  '#d9b3ff',
+                            4000,  '#b266ff',
+                            5000,  '#8000ff',
+                            6000,  '#4d0099',  
+                            7000,  '#330066'   // make the darkest color for highest values
+                        ],
+                        'fill-opacity': 0.8,
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'covid-outline',
+                    'type': 'line',
+                    'source': 'wa-covid',
+                    'paint': {
+                        'line-color': '#000000',  
+                        'line-width': 1.5,
+                        'line-opacity': 1
+                    }
+                });
+
+                map.addSource('wa-covid-centroids', {
+                    type: 'geojson',
+                    data: 'assets/wa_coviddata_centroids.geojson'
+                });
+                // Uses centroid locations calculated in Centroid.py for the prop. symbols
+                map.addLayer({
+                    'id': 'death-symbols',
+                    'type': 'circle',
+                    'source': 'wa-covid-centroids',
+                    'paint': {
+                        'circle-radius': [
+                            'interpolate', ['linear'], ['get', 'deathPer10k'],
+                            1, 4,  
+                            5, 10,  
+                            10, 20,  
+                            20, 30,  
+                            30, 40  
+                        ],
+                        'circle-color': '#FF8C00',
+                        'circle-opacity': 0.7,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-stroke-width': 1
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'death-symbol-center',
+                    'type': 'circle',
+                    'source': 'wa-covid-centroids',
+                    'paint': {
+                        'circle-radius': 1.5,
+                        'circle-color': 'white', 
+                        'circle-opacity': 1,
+                    }
+                });
+                // legend
+                const colors = ['#f2e6ff', '#d9b3ff', '#b266ff', '#8000ff', '#4d0099', '#330066'];
+                const legend = document.getElementById('legend');
+                const labels = ['< 2500', '2500 - 3999', '4000 - 4999', '5000 - 5999', '6000 - 6999', '7000+'];
+
+                const title = document.createElement('div');
+                title.innerHTML = "<strong> Fully Vaccinated (per 10K) </strong>";
+                title.style.fontSize = "14px";  
+                title.style.marginBottom = "8px"; 
+                legend.appendChild(title);
+
+                for (let i = 0; i < colors.length; i++) {
+                    const item = document.createElement('div');
+                    const colorBox = document.createElement('span');
+                    colorBox.style.backgroundColor = colors[i];
+                    item.appendChild(colorBox);
+                    item.appendChild(document.createTextNode(labels[i]));
+                    legend.appendChild(item);
+                }
+
+                const propLegend = document.getElementById('prop-symbol-legend');
+
+                propLegend.innerHTML = '';
+
+                const propTitle = document.createElement('div');
+                propTitle.innerHTML = "<strong>Deaths per 10K</strong>";
+                propTitle.style.fontSize = "14px";
+                propTitle.style.marginBottom = "8px";
+                propLegend.appendChild(propTitle);
+
+                // Define bins for death rate values and corresponding circle sizes
+                const deathValues = [1, 5, 10, 20, 30];
+                const circleSizes = [4, 10, 20, 30, 40]; 
+
+                for (let i = 0; i < deathValues.length; i++) {
+                    const item = document.createElement('div');
+                    item.style.display = "flex";
+                    item.style.alignItems = "center";
+                    item.style.marginBottom = "5px";
+
+                    const circle = document.createElement('span');
+                    circle.style.width = `${circleSizes[i] * 2}px`;
+                    circle.style.height = `${circleSizes[i] * 2}px`;
+                    circle.style.backgroundColor = '#FF8C00';
+                    circle.style.borderRadius = "50%";
+                    circle.style.display = "inline-block";
+                    circle.style.marginRight = "10px";
+                    circle.style.opacity = "0.7";
+                    circle.style.border = "1px solid #fff";
+
+                    item.appendChild(circle);
+                    item.appendChild(document.createTextNode(`${deathValues[i]} per 10K`));
+                    propLegend.appendChild(item);
+                }
+
+                document.getElementById('legend').style.display = 'block';
+                document.getElementById('prop-symbol-legend').style.display = 'block';
+
+                const info = document.getElementById('info');
+
+                map.on('mousemove', 'covid-layer', (e) => {
+                    const features = e.features[0];
+                    if (features) {
+                        const { name, fullyVaxPer10k } = features.properties;
+                        info.style.display = 'block';
+                        info.style.left = `${e.point.x + 10}px`;
+                        info.style.top = `${e.point.y + 10}px`;
+                        info.innerHTML = `<strong>County: <span style="color: purple;">${name}</span></strong><br>Fully Vax Per 10K: ${fullyVaxPer10k}`;
+                    }
+                });
+
+                map.on('mouseleave', 'covid-layer', () => {
+                    info.style.display = 'none';
+                });
+
+                // This hover event only triggers when over circles
+                map.on('mousemove', 'death-symbols', (e) => {
+                    const features = e.features[0];
+                    if (features) {
+                        const { name, deathPer10k } = features.properties;
+
+                        info.style.display = 'block';
+                        info.style.left = `${e.point.x + 10}px`;
+                        info.style.top = `${e.point.y + 10}px`;
+                        info.innerHTML = `<strong>County:<span style="color: Orange;"> ${name}</strong><br>Deaths Per 10K: ${deathPer10k}`;
+                    }
+                });
+
+                map.on('mouseleave', 'death-symbols', () => {
+                    info.style.display = 'none';
+                });
+
+            });
+        }
+
+        initMap();
+    </script>
+</body>
+</html>
